@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision import transforms, datasets
 from torchvision.utils import save_image, make_grid
 
-from modules import VectorQuantizedVAE, to_scalar
+from modules import VectorQuantizedVAE, to_scalar, GatedPixelCNN
 from datasets import MiniImagenet
 
 from tensorboardX import SummaryWriter
@@ -16,7 +16,6 @@ def train(data_loader, model, optimizer, args, writer):
         optimizer.zero_grad()
         x_tilde, z_e_x, z_q_x = model(images)
 
-        ### VQVAE Loss ###
         # Reconstruction loss
         loss_recons = F.mse_loss(x_tilde, images)
         # Vector quantization objective
@@ -24,38 +23,8 @@ def train(data_loader, model, optimizer, args, writer):
         # Commitment objective
         loss_commit = F.mse_loss(z_e_x, z_q_x.detach())
 
-        loss_V = loss_recons + loss_vq + args.beta * loss_commit
-        
-        ### START COPIED CODE from PS3 ###
-        
-        ### Discriminator Loss ###
-        #realsamples = images
-        fakesamples = generate_samples(images, model, args)
-
-        #get discriminator values
-        p = model.discriminate(images) #D(x)
-        q = model.discriminate(fakesamples) #D(xhat)
-        
-        #print(p.size())
-
-        #convert to probabilities with softmax
-        sp = torch.exp(p)
-        sq = torch.exp(q)
-        
-        p = sp/(sp + sq)
-        q = sq/(sp + sq)
-        
-        loss_GAN = torch.mean(torch.log(p)) + torch.mean(torch.log(1-q))
-        
-        #loss_GAN = loss(1-q)
-        #lD.backward()
-        #dopt.step()
-        
-        ### END COPIED CODE from PS3 ###
-        
-        loss_total = loss_GAN + loss_V
-        
-        loss_total.backward()
+        loss = loss_recons + loss_vq + args.beta * loss_commit
+        loss.backward()
 
         # Logs
         writer.add_scalar('loss/train/reconstruction', loss_recons.item(), args.steps)
@@ -172,7 +141,9 @@ def main(args):
                 torch.save(model.state_dict(), f)
         with open('{0}/model_{1}.pt'.format(save_filename, epoch + 1), 'wb') as f:
             torch.save(model.state_dict(), f)
-
+    
+    latentgen = GatedPixelCNN
+    
 if __name__ == '__main__':
     import argparse
     import os

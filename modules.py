@@ -131,28 +131,6 @@ class VectorQuantizedVAE(nn.Module):
             nn.ConvTranspose2d(dim, input_dim, 4, 2, 1),
             nn.Tanh()
         )
-        
-        self.discriminator = nn.Sequential(
-            # implementation goes here
-            # implementation goes here
-
-            nn.Conv2d(3, 16, 4, 2, 1),
-            nn.BatchNorm2d(16),
-            nn.ELU(),
-
-            nn.Conv2d(16, 32, 4, 2, 1),
-            nn.BatchNorm2d(32),
-            nn.ELU(),
-            
-            nn.Conv2d(32, 64, 4, 2, 1),
-            nn.BatchNorm2d(64),
-            nn.ELU(),
-
-            nn.Conv2d(64, 128, 4, 2, 1)
-            
-        )
-        
-        self.discfinal = nn.Linear(512, 1)
 
         self.apply(weights_init)
 
@@ -171,15 +149,7 @@ class VectorQuantizedVAE(nn.Module):
         z_q_x_st, z_q_x = self.codebook.straight_through(z_e_x)
         x_tilde = self.decoder(z_q_x_st)
         return x_tilde, z_e_x, z_q_x
-        
-    def discriminate(self, input):
-        #print("input size before discrim:", input.size())
-        out = self.discriminator(input) # implementation goes here
-        #print("input size after discrim:", out.size())
-        out = torch.flatten(out, start_dim = 1, end_dim = -1)
-        #print("input size after flattening:", out.size())
-        out = self.discfinal(out)
-        return out
+
 
 class GatedActivation(nn.Module):
     def __init__(self):
