@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import json
-from torchvision import transforms
+from torchvision import transforms, datasets
 from torchvision.utils import save_image, make_grid
 
 from modules import VectorQuantizedVAE, GatedPixelCNN
@@ -110,8 +110,8 @@ def main(args):
         batch_size=16, shuffle=True)
 
     # Save the label encoder
-    with open('./models/{0}/labels.json'.format(args.output_folder), 'w') as f:
-        json.dump(train_dataset._label_encoder, f)
+    #with open('./models/{0}/labels.json'.format(args.output_folder), 'w') as f:
+       # json.dump(train_dataset._label_encoder, f)
 
     # Fixed images for Tensorboard
     fixed_images, _ = next(iter(test_loader))
@@ -124,12 +124,17 @@ def main(args):
         model.load_state_dict(state_dict)
     model.eval()
 
+    #prior = GatedPixelCNN(args.k, args.hidden_size_prior,
+        #args.num_layers, n_classes=len(train_dataset._label_encoder)).to(args.device)
+        
     prior = GatedPixelCNN(args.k, args.hidden_size_prior,
-        args.num_layers, n_classes=len(train_dataset._label_encoder)).to(args.device)
+        args.num_layers, n_classes=10).to(args.device)
+        
     optimizer = torch.optim.Adam(prior.parameters(), lr=args.lr)
 
     best_loss = -1.
     for epoch in range(args.num_epochs):
+        print("Epoch", (epoch+1), " /", args.num_epochs)
         train(train_loader, model, prior, optimizer, args, writer)
         # The validation loss is not properly computed since
         # the classes in the train and valid splits of Mini-Imagenet
@@ -140,7 +145,18 @@ def main(args):
             best_loss = loss
             with open(save_filename, 'wb') as f:
                 torch.save(prior.state_dict(), f)
-
+        
+        latents = prior.generate(torch.LongTensor([0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7]).cuda())
+        samps = model.decode(latents)
+        
+        fixed_grid = make_grid(samps, nrow=8, range=(-1, 1), normalize=True)
+        writer.add_image('fakes', fixed_grid, 0)
+        #print("test")
+                
+    #latents = prior.generate('airplane')
+    #samps = model.decode(latents)
+    #writer.add_image('generated samples', samps, 0)
+    
 if __name__ == '__main__':
     import argparse
     import os

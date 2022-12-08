@@ -3,8 +3,9 @@ import torch
 import torch.nn.functional as F
 from torchvision import transforms, datasets
 from torchvision.utils import save_image, make_grid
+import math
 
-from modules import VectorQuantizedVAE, to_scalar
+from modules import VectorQuantizedVAE, to_scalar, GatedPixelCNN
 from datasets import MiniImagenet
 
 from tensorboardX import SummaryWriter
@@ -24,17 +25,28 @@ def train(data_loader, model, optimizer, args, writer):
         # Commitment objective
         loss_commit = F.mse_loss(z_e_x, z_q_x.detach())
 
-        loss_V = loss_recons + loss_vq + args.beta * loss_commit
+        #loss_V = loss_recons + loss_vq + args.beta * loss_commit   #vqvae loss
+        loss_V = loss_recons + loss_vq + loss_commit    #vqgan loss
+        
+        #print("loss_V", loss_V)
         
         ### START COPIED CODE from PS3 ###
         
         ### Discriminator Loss ###
         #realsamples = images
-        fakesamples = generate_samples(images, model, args)
-
+        #fakesamples = generate_samples(images, model, args)
+        with torch.no_grad():
+            images = images.to(args.device)
+        fakesamples, _, _ = model(images)
+        
+        #print("after fake samples generated")
+        
         #get discriminator values
         p = model.discriminate(images) #D(x)
         q = model.discriminate(fakesamples) #D(xhat)
+        
+        
+
         
         #print(p.size())
 
@@ -45,7 +57,11 @@ def train(data_loader, model, optimizer, args, writer):
         p = sp/(sp + sq)
         q = sq/(sp + sq)
         
-        loss_GAN = torch.mean(torch.log(p)) + torch.mean(torch.log(1-q))
+        #print("after p and q generated")
+        
+        loss_GAN = -1*(torch.mean(torch.log(p)) + torch.mean(torch.log(1-q)))
+        
+        #print("loss_GAN", loss_GAN)
         
         #loss_GAN = loss(1-q)
         #lD.backward()
@@ -53,17 +69,70 @@ def train(data_loader, model, optimizer, args, writer):
         
         ### END COPIED CODE from PS3 ###
         
-        loss_total = loss_GAN + loss_V
+        
+        #grad_rec = grad(loss_recons, model.getlastlayer(), allow_unused=True) #a tuple with one element that is one tensor
+        #grad_GAN = grad(loss_GAN, model.getlastlayer(), allow_unused=True)
+        
+        #grad_rec = grad_rec[0] ## convert the tuple to a tensor
+        #grad_GAN = grad_GAN[0]
+        
+        #print("GAN loss: ", loss_GAN)
+        
+        
+        
+        adaptive_weight = calculate_adaptive_weight(loss_recons, loss_GAN, model.getlastlayerdec(), model.getlastlayerdec())
+        
+        #print("after adaptive weight calculated")
+        
+        if math.isnan(adaptive_weight):
+            #print("adaptive weight is nan")
+            adaptive_weight = torch.tensor(0.0)
+        
+        
+        #try:
+            #adaptive_weight = calculate_adaptive_weight(loss_recons, loss_GAN, model.getlastlayer())
+        #except RuntimeError:
+            ##assert not self.training
+            #print("exception")
+            #adaptive_weight = torch.tensor(0.0)
+       
+        #print("adaptive weight: ", adaptive_weight)
+        
+        #loss_total = loss_GAN + adaptive_weight*loss_V
+        
+        
+        
+        loss_total = loss_GAN + adaptive_weight*loss_V
+        
+        #print("Adaptive weight: ", adaptive_weight)
+        #print("Total loss: ", loss_total)
         
         loss_total.backward()
 
         # Logs
         writer.add_scalar('loss/train/reconstruction', loss_recons.item(), args.steps)
         writer.add_scalar('loss/train/quantization', loss_vq.item(), args.steps)
+        writer.add_scalar('loss/train/GAN', loss_GAN.item(), args.steps)
+        writer.add_scalar('loss/train/total', loss_total.item(), args.steps)
 
         optimizer.step()
         args.steps += 1
+        
+def calculate_adaptive_weight(nll_loss, g_loss, last_layer_dec=None, last_layer_disc=None):
+    
+        nll_grads = torch.autograd.grad(nll_loss, last_layer_dec, retain_graph=True)[0]
 
+        g_grads = torch.autograd.grad(g_loss, last_layer_disc, retain_graph=True)[0]
+        
+        #print("NLL grads: ", nll_grads)
+        #print("g grads: ", g_grads)
+        
+        #print("NLL grads: ", nll_grads)
+        #print("G grads: ", g_grads)
+        
+        d_weight = torch.norm(nll_grads) / (torch.norm(g_grads) + 1e-4)
+        d_weight = torch.clamp(d_weight, 0.0, 1e4).detach()
+        return d_weight
 def test(data_loader, model, args, writer):
     with torch.no_grad():
         loss_recons, loss_vq = 0., 0.
@@ -159,6 +228,7 @@ def main(args):
 
     best_loss = -1.
     for epoch in range(args.num_epochs):
+        print("Epoch", (epoch+1), " /", args.num_epochs)
         train(train_loader, model, optimizer, args, writer)
         loss, _ = test(valid_loader, model, args, writer)
 
@@ -172,7 +242,9 @@ def main(args):
                 torch.save(model.state_dict(), f)
         with open('{0}/model_{1}.pt'.format(save_filename, epoch + 1), 'wb') as f:
             torch.save(model.state_dict(), f)
-
+    
+    latentgen = GatedPixelCNN
+    
 if __name__ == '__main__':
     import argparse
     import os

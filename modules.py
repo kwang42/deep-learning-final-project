@@ -155,6 +155,12 @@ class VectorQuantizedVAE(nn.Module):
         self.discfinal = nn.Linear(512, 1)
 
         self.apply(weights_init)
+        
+    def getlastlayerdec(self):
+        return self.decoder[6].weight
+        
+    def getlastlayerdisc(self):
+        return self.discriminator[6].weight
 
     def encode(self, x):
         z_e_x = self.encoder(x)
@@ -180,6 +186,7 @@ class VectorQuantizedVAE(nn.Module):
         #print("input size after flattening:", out.size())
         out = self.discfinal(out)
         return out
+
 
 class GatedActivation(nn.Module):
     def __init__(self):
@@ -279,6 +286,8 @@ class GatedPixelCNN(nn.Module):
         self.apply(weights_init)
 
     def forward(self, x, label):
+        #print("label = ", label)
+        #print("label size = ", label.size())
         shp = x.size() + (-1, )
         x = self.embedding(x.view(-1)).view(shp)  # (B, H, W, C)
         x = x.permute(0, 3, 1, 2)  # (B, C, W, W)
