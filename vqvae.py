@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torchvision import transforms, datasets
 from torchvision.utils import save_image, make_grid
+import math
 
 from modules import VectorQuantizedVAE, to_scalar, GatedPixelCNN
 from datasets import MiniImagenet
@@ -16,6 +17,7 @@ def train(data_loader, model, optimizer, args, writer):
         optimizer.zero_grad()
         x_tilde, z_e_x, z_q_x = model(images)
 
+        ### VQVAE Loss ###
         # Reconstruction loss
         loss_recons = F.mse_loss(x_tilde, images)
         # Vector quantization objective
@@ -23,16 +25,90 @@ def train(data_loader, model, optimizer, args, writer):
         # Commitment objective
         loss_commit = F.mse_loss(z_e_x, z_q_x.detach())
 
-        loss = loss_recons + loss_vq + args.beta * loss_commit
-        loss.backward()
+        #loss_V = loss_recons + loss_vq + args.beta * loss_commit   #vqvae loss
+        loss_V = loss_recons + loss_vq + args.beta * loss_commit    #vqgan loss
+        
+        ### START COPIED CODE from PS3 ###
+        
+        ### Discriminator Loss ###
+        #realsamples = images
+        fakesamples = generate_samples(images, model, args)
+
+        #get discriminator values
+        p = model.discriminate(images) #D(x)
+        q = model.discriminate(fakesamples) #D(xhat)
+        
+        #print(p.size())
+
+        #convert to probabilities with softmax
+        sp = torch.exp(p)
+        sq = torch.exp(q)
+        
+        p = sp/(sp + sq)
+        q = sq/(sp + sq)
+        
+        loss_GAN = torch.mean(torch.log(p)) + torch.mean(torch.log(1-q))
+        
+        #loss_GAN = loss(1-q)
+        #lD.backward()
+        #dopt.step()
+        
+        ### END COPIED CODE from PS3 ###
+        
+        
+        #grad_rec = grad(loss_recons, model.getlastlayer(), allow_unused=True) #a tuple with one element that is one tensor
+        #grad_GAN = grad(loss_GAN, model.getlastlayer(), allow_unused=True)
+        
+        #grad_rec = grad_rec[0] ## convert the tuple to a tensor
+        #grad_GAN = grad_GAN[0]
+        
+        #print("GAN loss: ", loss_GAN)
+        
+        
+        
+        adaptive_weight = calculate_adaptive_weight(loss_recons, loss_GAN, model.getlastlayerdec(), model.getlastlayerdec())
+        
+        if math.isnan(adaptive_weight):
+            adaptive_weight = torch.tensor(0.0)
+        
+        #try:
+            #adaptive_weight = calculate_adaptive_weight(loss_recons, loss_GAN, model.getlastlayer())
+        #except RuntimeError:
+            ##assert not self.training
+            #print("exception")
+            #adaptive_weight = torch.tensor(0.0)
+       
+        #print("adaptive weight: ", adaptive_weight)
+        
+        #loss_total = loss_GAN + adaptive_weight*loss_V
+        
+        loss_total = loss_GAN + adaptive_weight*loss_V
+        
+        loss_total.backward()
 
         # Logs
         writer.add_scalar('loss/train/reconstruction', loss_recons.item(), args.steps)
         writer.add_scalar('loss/train/quantization', loss_vq.item(), args.steps)
+        writer.add_scalar('loss/train/GAN', loss_GAN.item(), args.steps)
 
         optimizer.step()
         args.steps += 1
+        
+def calculate_adaptive_weight(nll_loss, g_loss, last_layer_dec=None, last_layer_disc=None):
+    
+        nll_grads = torch.autograd.grad(nll_loss, last_layer_dec, retain_graph=True)[0]
 
+        g_grads = torch.autograd.grad(g_loss, last_layer_disc, retain_graph=True)[0]
+        
+        #print("NLL grads: ", nll_grads)
+        print("g grads: ", g_grads)
+        
+        #print("NLL grads: ", nll_grads)
+        #print("G grads: ", g_grads)
+        
+        d_weight = torch.norm(nll_grads) / (torch.norm(g_grads) + 1e-4)
+        d_weight = torch.clamp(d_weight, 0.0, 1e4).detach()
+        return d_weight
 def test(data_loader, model, args, writer):
     with torch.no_grad():
         loss_recons, loss_vq = 0., 0.

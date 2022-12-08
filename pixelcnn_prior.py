@@ -145,10 +145,13 @@ def main(args):
             with open(save_filename, 'wb') as f:
                 torch.save(prior.state_dict(), f)
         
-        #latents = prior.generate('airplane')
-        #samps = model.decode(latents)
-        #writer.add_image('generated samples', samps, 0)
-        #print("test")
+        latents = prior.generate(torch.LongTensor([0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3]).cuda())
+        samps = model.decode(latents)
+        print("samps size: ", samps.size())
+        
+        fixed_grid = make_grid(samps, nrow=8, range=(-1, 1), normalize=True)
+        writer.add_image('fakes', fixed_grid, 0)
+        print("test")
                 
     #latents = prior.generate('airplane')
     #samps = model.decode(latents)

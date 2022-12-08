@@ -131,8 +131,36 @@ class VectorQuantizedVAE(nn.Module):
             nn.ConvTranspose2d(dim, input_dim, 4, 2, 1),
             nn.Tanh()
         )
+        
+        self.discriminator = nn.Sequential(
+            # implementation goes here
+            # implementation goes here
+
+            nn.Conv2d(3, 16, 4, 2, 1),
+            nn.BatchNorm2d(16),
+            nn.ELU(),
+
+            nn.Conv2d(16, 32, 4, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.ELU(),
+            
+            nn.Conv2d(32, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ELU(),
+
+            nn.Conv2d(64, 128, 4, 2, 1)
+            
+        )
+        
+        self.discfinal = nn.Linear(512, 1)
 
         self.apply(weights_init)
+        
+    def getlastlayerdec(self):
+        return self.decoder[6].weight
+        
+    def getlastlayerdisc(self):
+        return self.discriminator[6].weight
 
     def encode(self, x):
         z_e_x = self.encoder(x)
@@ -149,6 +177,15 @@ class VectorQuantizedVAE(nn.Module):
         z_q_x_st, z_q_x = self.codebook.straight_through(z_e_x)
         x_tilde = self.decoder(z_q_x_st)
         return x_tilde, z_e_x, z_q_x
+        
+    def discriminate(self, input):
+        #print("input size before discrim:", input.size())
+        out = self.discriminator(input) # implementation goes here
+        #print("input size after discrim:", out.size())
+        out = torch.flatten(out, start_dim = 1, end_dim = -1)
+        #print("input size after flattening:", out.size())
+        out = self.discfinal(out)
+        return out
 
 
 class GatedActivation(nn.Module):
@@ -249,6 +286,8 @@ class GatedPixelCNN(nn.Module):
         self.apply(weights_init)
 
     def forward(self, x, label):
+        #print("label = ", label)
+        #print("label size = ", label.size())
         shp = x.size() + (-1, )
         x = self.embedding(x.view(-1)).view(shp)  # (B, H, W, C)
         x = x.permute(0, 3, 1, 2)  # (B, C, W, W)
